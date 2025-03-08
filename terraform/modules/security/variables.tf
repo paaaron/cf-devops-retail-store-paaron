@@ -6,4 +6,5 @@ variable "vpc_id" {
 variable "ssh_public_key" {
   description = "Path to the public SSH key file"
   type        = string
+  default     = "./id_rsa.pub"
 }

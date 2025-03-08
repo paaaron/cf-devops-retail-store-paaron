@@ -45,6 +45,10 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.7.0
+      - name: Set up SSH Public Key
+        run: |
+          echo "${{ secrets.SSH_PUBLIC_KEY }}" > ./id_rsa.pub
+
 
       - name: Terraform Format Check
         run: terraform fmt  --check --recursive
@@ -184,7 +188,7 @@ jobs:
       run:
         working-directory: ./terraform
     
-    steps:
+    steps: 
       - name: Checkout Repository
         uses: actions/checkout@v4
       

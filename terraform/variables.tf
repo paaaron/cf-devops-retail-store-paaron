@@ -19,7 +19,7 @@ variable "subnet_cidr" {
 variable "ssh_public_key" {
   description = "Public SSH key for EC2 access"
   type        = string
-  default     = "~/.ssh/id_rsa.pub"
+  default     = "./id_rsa.pub"
 }
 
 variable "instance_type" {
