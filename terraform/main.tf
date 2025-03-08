@@ -27,8 +27,3 @@ module "ec2" {
   instance_profile = module.security.instance_profile_name
   volume_size     = var.volume_size
 }
-
-# Output the instance public IP
-output "instance_public_ip" {
-  value = module.ec2.instance_public_ip
-}
