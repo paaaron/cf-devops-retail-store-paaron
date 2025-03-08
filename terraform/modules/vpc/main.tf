@@ -2,7 +2,7 @@ resource "aws_vpc" "monitoring_vpc" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
   enable_dns_hostnames = true
-  
+
   tags = {
     Name = "monitoring-vpc"
   }
@@ -13,7 +13,7 @@ resource "aws_subnet" "monitoring_subnet" {
   cidr_block              = var.subnet_cidr
   map_public_ip_on_launch = true
   availability_zone       = var.availability_zone
-  
+
   tags = {
     Name = "monitoring-subnet"
   }
@@ -21,7 +21,7 @@ resource "aws_subnet" "monitoring_subnet" {
 
 resource "aws_internet_gateway" "monitoring_gateway" {
   vpc_id = aws_vpc.monitoring_vpc.id
-  
+
   tags = {
     Name = "monitoring-gateway"
   }
@@ -29,12 +29,12 @@ resource "aws_internet_gateway" "monitoring_gateway" {
 
 resource "aws_route_table" "monitoring_route_table" {
   vpc_id = aws_vpc.monitoring_vpc.id
-  
+
   route {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.monitoring_gateway.id
   }
-  
+
   tags = {
     Name = "monitoring-route-table"
   }
