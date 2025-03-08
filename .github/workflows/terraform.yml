@@ -87,7 +87,7 @@ jobs:
             -backend-config="region=${{ env.AWS_REGION }}"
       
       - name: Select Workspace
-        run: terraform workspace select ${{ github.event.inputs.environment || 'dev' }} || terraform workspace new ${{ github.event.inputs.environment || 'dev' }}
+        run: terraform workspace select -or-create ${{ github.event.inputs.environment || 'dev' }}
       
       - name: Load Variables
         run: |
