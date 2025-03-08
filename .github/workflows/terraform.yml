@@ -136,7 +136,7 @@ jobs:
       
       - name: Set up SSH Public Key
         run: |
-            echo "${{ secrets.SSH_PUBLIC_KEY }}" > ~/.ssh/id_rsa.pub
+            echo "${{ secrets.SSH_PUBLIC_KEY }}" > ./id_rsa.pub
           
       - name: Terraform Init
         run: |
