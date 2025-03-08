@@ -1,37 +1,35 @@
-variable "instance_type" {
-  description = "Type of instance to be created"
-  type        = string
-  default     = "t2.micro"
-}
-
-variable "key_name" {
-  description = "Name of the key pair to use for the instance"
-  type        = string
-}
-
-variable "security_group" {
-  description = "List of security group IDs to associate with the instance"
-  type        = list(string)
-}
-
-variable "subnet_id_a" {
-  description = "The subnet ID in which to launch the instance"
-  type        = string
-  default     = "us-east-1a"
-}
-
 variable "region" {
-  description = "The AWS region to deploy to"
+  description = "AWS region to deploy resources"
   type        = string
-  default     = "us-east-1"
+  default     = "us-west-2"
 }
 
-variable "project" {
-  description = "The name of the project"
+variable "vpc_cidr" {
+  description = "CIDR block for the VPC"
   type        = string
+  default     = "10.0.0.0/16"
 }
 
-variable "environment" {
-  description = "The deployment environment (e.g., dev, staging, prod)"
+variable "subnet_cidr" {
+  description = "CIDR block for the subnet"
   type        = string
+  default     = "10.0.1.0/24"
+}
+
+variable "ssh_public_key" {
+  description = "Public SSH key for EC2 access"
+  type        = string
+  default     = "~/.ssh/id_rsa.pub"
+}
+
+variable "instance_type" {
+  description = "EC2 instance type"
+  type        = string
+  default     = "t3.xlarge"
+}
+
+variable "volume_size" {
+  description = "Root volume size in GB"
+  type        = number
+  default     = 100
 }

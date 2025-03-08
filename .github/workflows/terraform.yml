@@ -1,92 +1,213 @@
-name: Terraform IaC Deployment
+name: Terraform Deploy
 
 on:
   push:
-    branches: [ develop, main ]
+    branches: [ main ]
     paths:
       - 'terraform/**'
   pull_request:
-    branches: [ develop, main ]
+    branches: [ main ]
     paths:
       - 'terraform/**'
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
 
 permissions:
+  id-token: write
   contents: read
-  pull-requests: write
-  issues: write
+
+env:
+  TF_LOG: INFO
+  AWS_REGION: us-west-2
 
 jobs:
-  terraform:
-    name: 'Terraform'
+  terraform-validate:
+    name: Terraform Validate
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: ./terraform
-    outputs:
-      ec2_ip: ${{ steps.terraform_output.outputs.ec2_public_ip }}
-      deployment_ready: ${{ steps.deployment_ready.outputs.ready }}
-
+    
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.11.0
+          terraform_version: 1.7.0
 
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+      
+      - name: Terraform Init
+        run: terraform init -backend=false
+      
+      - name: Terraform Validate
+        run: terraform validate
+
+  terraform-plan:
+    name: Terraform Plan
+    needs: terraform-validate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./terraform
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
-
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.0
+      
       - name: Terraform Init
-        id: init
-        run: terraform init
-
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ github.event.inputs.environment || 'dev' }}/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}"
+      
+      - name: Select Workspace
+        run: terraform workspace select ${{ github.event.inputs.environment || 'dev' }} || terraform workspace new ${{ github.event.inputs.environment || 'dev' }}
+      
+      - name: Load Variables
+        run: |
+          cp terraform.tfvars.${{ github.event.inputs.environment || 'dev' }} terraform.tfvars || echo "Using default vars"
+      
       - name: Terraform Plan
         id: plan
-        run: terraform plan -var-file terraform.tfvars -out plan.out
+        run: terraform plan -out=tfplan
+        continue-on-error: true
+      
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: ./terraform/tfplan
+          retention-days: 5
+      
+      - name: Terraform Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
 
+  terraform-apply:
+    name: Terraform Apply
+    needs: terraform-plan
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    defaults:
+      run:
+        working-directory: ./terraform
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.0
+      
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ github.event.inputs.environment || 'dev' }}/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}"
+      
+      - name: Select Workspace
+        run: terraform workspace select ${{ github.event.inputs.environment || 'dev' }} || terraform workspace new ${{ github.event.inputs.environment || 'dev' }}
+      
+      - name: Load Variables
+        run: |
+          cp terraform.tfvars.${{ github.event.inputs.environment || 'dev' }} terraform.tfvars || echo "Using default vars"
+      
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan
+          path: ./terraform
+      
       - name: Terraform Apply
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
-        run: terraform apply "plan.out"
-
-      - name: Get Terraform Outputs
-        id: terraform_output
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+        run: terraform apply -auto-approve tfplan
+      
+      - name: Extract Outputs
+        id: terraform-outputs
         run: |
-          # Usar el nombre correcto del output: instance_public_ip en lugar de ec2_public_ip
-          EC2_IP=$(terraform output -raw instance_public_ip)
-          echo "ec2_public_ip=${EC2_IP}" >> $GITHUB_OUTPUT
-
-      - name: Wait for EC2 Instance to be Ready
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
-        id: wait_for_ec2
+          echo "INSTANCE_IP=$(terraform output -raw instance_public_ip)" >> $GITHUB_OUTPUT
+          echo "SSH_COMMAND=$(terraform output -raw ssh_command)" >> $GITHUB_OUTPUT
+      
+      - name: Create Deployment Summary
         run: |
-          echo "Waiting for EC2 instance to be ready..."
-          timeout=600
-          interval=10
-          elapsed=0
-          
-          until nc -z -w 5 ${{ steps.terraform_output.outputs.ec2_public_ip }} 22; do
-            if [ $elapsed -ge $timeout ]; then
-              echo "Timeout waiting for EC2 instance to be ready"
-              exit 1
-            fi
-            echo "Waiting for SSH to be available... ($elapsed/$timeout seconds)"
-            sleep $interval
-            elapsed=$((elapsed + interval))
-          done
-          
-          # Additional wait to make sure system is fully initialized
-          sleep 60
-          echo "EC2 instance is ready!"
+          echo "### Deployment Summary :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.event.inputs.environment || 'dev' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Instance IP:** ${{ steps.terraform-outputs.outputs.INSTANCE_IP }}" >> $GITHUB_STEP_SUMMARY
+          echo "**SSH Command:** ${{ steps.terraform-outputs.outputs.SSH_COMMAND }}" >> $GITHUB_STEP_SUMMARY
 
-      - name: Set Deployment Ready Flag
-        id: deployment_ready
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
-        run: echo "ready=true" >> $GITHUB_OUTPUT
+  terraform-destroy:
+    name: Terraform Destroy
+    if: github.event_name == 'workflow_dispatch' && contains(github.event.inputs.environment, 'dev')
+    needs: terraform-apply
+    runs-on: ubuntu-latest
+    environment: destroy-confirmation
+    defaults:
+      run:
+        working-directory: ./terraform
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.0
+      
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ github.event.inputs.environment || 'dev' }}/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}"
+      
+      - name: Select Workspace
+        run: terraform workspace select ${{ github.event.inputs.environment || 'dev' }}
+      
+      - name: Load Variables
+        run: |
+          cp terraform.tfvars.${{ github.event.inputs.environment || 'dev' }} terraform.tfvars || echo "Using default vars"
+      
+      # Only provided as an example - use with caution!
+      # - name: Terraform Destroy
+      #   run: terraform destroy -auto-approve

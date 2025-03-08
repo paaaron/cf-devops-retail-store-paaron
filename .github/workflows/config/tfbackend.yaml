@@ -1,0 +1,15 @@
+# S3 backend configuration settings
+dev:
+    bucket: "your-company-tfstate-dev"
+    key: "monitoring-stack/terraform.tfstate"
+    region: "us-west-2"
+    
+  staging:
+    bucket: "your-company-tfstate-staging"
+    key: "monitoring-stack/terraform.tfstate"
+    region: "us-west-2"
+    
+  prod:
+    bucket: "your-company-tfstate-prod"
+    key: "monitoring-stack/terraform.tfstate"
+    region: "us-west-2"
